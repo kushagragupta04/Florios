@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import InfusionCard from "./components/InfusionCard/InfusionCard";
 
 const API_URL = "https://ungrinned-amphibiously-angelique.ngrok-free.dev/api/data/";
+// const API_URL = "http://localhost:5000/api/data/";
 
 // ----------------------
 // Process API data: Group by bottle_id and get latest entry per bottle
@@ -39,6 +40,8 @@ function App() {
   const [bottlesHistory, setBottlesHistory] = useState({}); // Track history for each bottle
   const [status, setStatus] = useState("Disconnected");
   const [graphType, setGraphType] = useState("remaining_volume"); // "remaining_volume" or "infusion_rate"
+  const [alarmThreshold, setAlarmThreshold] = useState(100); // Default alarm threshold in ml
+  const [alarmThresholdInput, setAlarmThresholdInput] = useState("100"); // Input value
 
   // Fetch data from API
   const fetchData = async () => {
@@ -70,7 +73,7 @@ function App() {
 
       setBottles(bottlesArray);
       
-      // Update history for each bottle
+      // Update history for each bottle (with deduplication)
       setBottlesHistory((prevHistory) => {
         const newHistory = { ...prevHistory };
         
@@ -79,16 +82,20 @@ function App() {
             newHistory[bottle.bottle_id] = [];
           }
           
-          // Add new data point
-          newHistory[bottle.bottle_id].push({
-            time: bottle.timestamp, // Unix timestamp in seconds
-            remaining_volume: bottle.remaining_volume,
-            infusion_rate: bottle.infusion_rate, // Already in ml/min
-          });
+          const lastEntry = newHistory[bottle.bottle_id][newHistory[bottle.bottle_id].length - 1];
           
-          // Keep only last 50 points
-          if (newHistory[bottle.bottle_id].length > 50) {
-            newHistory[bottle.bottle_id] = newHistory[bottle.bottle_id].slice(-50);
+          // Only add if timestamp is different (avoid duplicates)
+          if (!lastEntry || lastEntry.time !== bottle.timestamp) {
+            newHistory[bottle.bottle_id].push({
+              time: bottle.timestamp, // Unix timestamp in seconds
+              remaining_volume: bottle.remaining_volume,
+              infusion_rate: bottle.infusion_rate, // Already in ml/min
+            });
+            
+            // Keep only last 50 points
+            if (newHistory[bottle.bottle_id].length > 50) {
+              newHistory[bottle.bottle_id] = newHistory[bottle.bottle_id].slice(-50);
+            }
           }
         });
         
@@ -99,6 +106,14 @@ function App() {
     } catch (error) {
       console.error("Error fetching data:", error);
       setStatus("Disconnected");
+    }
+  };
+
+  // Handle alarm threshold setting
+  const handleSetAlarm = () => {
+    const value = parseFloat(alarmThresholdInput);
+    if (!isNaN(value) && value >= 0) {
+      setAlarmThreshold(value);
     }
   };
 
@@ -132,8 +147,29 @@ function App() {
         </div>
       </div>
 
-      {/* Graph Type Toggle - Top Right of Cards Section */}
-      <div className="mb-4 flex justify-end">
+      {/* Controls - Alarm Threshold and Graph Type Toggle */}
+      <div className="mb-4 flex justify-between items-center flex-wrap gap-4">
+        {/* Alarm Threshold Input */}
+        <div className="bg-white rounded-lg shadow-sm p-2 flex items-center gap-3">
+          <span className="text-sm font-medium text-gray-700">Alarm Threshold:</span>
+          <input
+            type="number"
+            value={alarmThresholdInput}
+            onChange={(e) => setAlarmThresholdInput(e.target.value)}
+            onKeyPress={(e) => e.key === 'Enter' && handleSetAlarm()}
+            placeholder="ml"
+            className="w-20 px-2 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            min="0"
+          />
+          <button
+            onClick={handleSetAlarm}
+            className="px-4 py-1.5 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors text-sm font-medium"
+          >
+            Set Alarm
+          </button>
+        </div>
+
+        {/* Graph Type Toggle */}
         <div className="bg-white rounded-lg shadow-sm p-2 flex items-center gap-3">
           <span className="text-sm font-medium text-gray-700">Graph View:</span>
           <div className="flex gap-2">
@@ -176,15 +212,9 @@ function App() {
               data={bottle}
               history={bottlesHistory[bottle.bottle_id] || []}
               graphType={graphType}
+              alarmThreshold={alarmThreshold}
             />
           ))}
-        </div>
-      )}
-
-      {/* Low Volume Warning */}
-      {bottles.some((b) => b.remaining_volume < 20 && b.remaining_volume > 0) && (
-        <div className="mt-6 p-4 bg-red-500 text-white rounded-lg font-bold text-center text-base">
-          ⚠ Low Fluid Level Detected! Please attend immediately.
         </div>
       )}
     </div>
